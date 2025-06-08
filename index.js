@@ -266,7 +266,7 @@ class PharosBot {
             console.log(`${index + 1}. ${token}`);
         });
 
-        const tokenChoice = await this.getUserInput('Select token to mint (1-6): ');
+        const tokenChoice = await this.getUserInput('Select token to mint (1-5): ');
         const tokenIndex = parseInt(tokenChoice) - 1;
 
         if (tokenIndex < 0 || tokenIndex >= tokenNames.length) {
