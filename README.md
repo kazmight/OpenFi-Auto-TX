@@ -5,15 +5,15 @@ A robust Node.js bot for automating interactions with the Pharos Testnet lending
 ## Link telegram: https://t.me/dasarpemulung
 
 ## ✨ Features
-## Multi-Wallet Support: Manage transactions across multiple private keys loaded from a .env file.
-## PHRS Supply: Deposit native PHRS tokens into the lending pool.
-## Faucet Token Minting: Obtain testnet ERC20 tokens (USDC, NVIDIA, USDT, GOLD, TSLA, BTC) from the faucet.
-## ERC20 Token Supply: Deposit various ERC20 tokens into the lending pool. Includes automatic approval and handles nonce management for reliable transactions.
-## Token Borrowing: Borrow supported tokens from the lending pool.
-## Token Withdrawal: Withdraw previously supplied tokens.
-## Customizable Transactions: Set the number of transactions per wallet and a fixed delay between them.
-## Robust Error Handling: Implements explicit nonce management and retry mechanisms to combat common blockchain errors like TX_REPLAY_ATTACK.
-## Detailed Logging: Provides clear, colored console output with transaction hashes and direct links to the Pharos Testnet explorer for easy tracking.
+- Multi-Wallet Support: Manage transactions across multiple private keys loaded from a .env file.
+- PHRS Supply: Deposit native PHRS tokens into the lending pool.
+- Faucet Token Minting: Obtain testnet ERC20 tokens (USDC, NVIDIA, USDT, GOLD, TSLA, BTC) from the faucet.
+- ERC20 Token Supply: Deposit various ERC20 tokens into the lending pool. Includes automatic approval and handles nonce management for reliable transactions.
+- Token Borrowing: Borrow supported tokens from the lending pool.
+- Token Withdrawal: Withdraw previously supplied tokens.
+- Customizable Transactions: Set the number of transactions per wallet and a fixed delay between them.
+- Robust Error Handling: Implements explicit nonce management and retry mechanisms to combat common blockchain errors like TX_REPLAY_ATTACK.
+- Detailed Logging: Provides clear, colored console output with transaction hashes and direct links to the Pharos Testnet explorer for easy tracking.
 
 ## 🛠️ Setup
 Follow these steps to get your OpenFi Bot up and running.
