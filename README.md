@@ -1,8 +1,8 @@
 ## OpenFi Bot
 A robust Node.js bot for automating interactions with the Pharos Testnet lending protocol. This bot supports multiple wallets and allows users to supply native tokens (PHRS), mint faucet ERC20 tokens, supply ERC20 tokens, borrow, and withdraw, all with customizable transaction counts and delays.
 
-## Jangan lupa join telegram channel Dasar Pemulung untuk update seputar script/bot airdrop.
-## Link telegram: https://t.me/dasarpemulung
+## Don't forget join telegram channel Dasar Pemulung for update about script/bot airdrop.
+## Links telegram: https://t.me/dasarpemulung
 
 ## ✨ Features
 - Multi-Wallet Support: Manage transactions across multiple private keys loaded from a .env file.
