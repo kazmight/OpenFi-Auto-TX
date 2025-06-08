@@ -1,4 +1,4 @@
-## OpenFi Pharos Bot
+## OpenFi Pharos Auto Transaction
 ## Bot otomatis untuk berinteraksi dengan protokol lending OpenFi di Pharos Testnet. Dirancang untuk membantu pengguna mensimulasikan aktivitas transaksi seperti supply, mint, borrow, dan withdraw token.
 
 ## Jangan lupa join telegram channel Dasar Pemulung untuk update seputar script/bot airdrop.
