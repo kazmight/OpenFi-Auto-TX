@@ -127,7 +127,7 @@ class PharosBot {
     }
 
     async showMenu() {
-        console.log(`\n${colors.cyan}${colors.bold}           OPENFI BOT MENU   ${colors.reset}`);
+        console.log(`\n${colors.cyan}${colors.bold}       OPENFI AUTO TRANSACTION   ${colors.reset}`);
         console.log(`${colors.green}${colors.bold} Join Telegram Channel Dasar Pemulung${colors.reset}`);
         console.log(`${colors.white}1. Supply PHRS${colors.reset}`);
         console.log(`${colors.white}2. Mint Faucet Tokens${colors.reset}`);
