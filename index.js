@@ -43,15 +43,15 @@ const NETWORK_CONFIG = {
 };
 
 const CONTRACTS = {
-    LENDING_POOL: '0xa8e550710bf113db6a1b38472118b8d6d5176d12', // Used for depositETH
-    FAUCET: '0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd', // Faucet for testnet tokens
-    SUPPLY_CONTRACT: '0xad3b4e20412a097f87cd8e8d84fbbe17ac7c89e9', // Main lending pool for ERC20
+    LENDING_POOL: '0xa8e550710bf113db6a1b38472118b8d6d5176d12', 
+    FAUCET: '0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd', 
+    SUPPLY_CONTRACT: '0xad3b4e20412a097f87cd8e8d84fbbe17ac7c89e9', 
     TOKENS: {
-        NVIDIA: '0x3299cc551b2a39926bf14144e65630e533df6944',
-        USDT: '0x0b00fb1f513e02399667fba50772b21f34c1b5d9',
-        USDC: '0x48249feeb47a8453023f702f15cf00206eebdf08',
         GOLD: '0x77f532df5f46ddff1c97cdae3115271a523fa0f4',
+        USDT: '0x0b00fb1f513e02399667fba50772b21f34c1b5d9',
         TSLA: '0xcda3df4aab8a571688fe493eb1bdc1ad210c09e4',
+        USDC: '0x48249feeb47a8453023f702f15cf00206eebdf08',
+        NVIDIA: '0x3299cc551b2a39926bf14144e65630e533df6944',
         BTC: '0xa4a967fc7cf0e9815bf5c2700a055813628b65be'
     }
 };
@@ -120,42 +120,88 @@ class PharosBot {
         });
     }
 
-    async getRandomDelay(minSeconds, maxSeconds) {
-        const delayMs = (Math.random() * (maxSeconds - minSeconds) + minSeconds) * 1000;
-        logger.loading(`Delaying for ${delayMs / 1000} seconds...`);
+    async getRandomDelay(seconds) {
+        const delayMs = seconds * 1000;
+        logger.loading(`Delaying for ${seconds} seconds...`);
         return new Promise(resolve => setTimeout(resolve, delayMs));
     }
 
     async showMenu() {
-        console.log(`\n${colors.cyan}${colors.bold}---🚨OPENFI BOT MENU🚨---${colors.reset}`);
+        console.log(`\n${colors.cyan}${colors.bold}           OPENFI BOT MENU   ${colors.reset}`);
         console.log(`${colors.green}${colors.bold} Join Telegram Channel Dasar Pemulung${colors.reset}`);
         console.log(`${colors.white}1. Supply PHRS${colors.reset}`);
         console.log(`${colors.white}2. Mint Faucet Tokens${colors.reset}`);
         console.log(`${colors.white}3. Supply ERC20 Tokens${colors.reset}`);
         console.log(`${colors.white}4. Borrow Tokens${colors.reset}`);
         console.log(`${colors.white}5. Withdraw Tokens${colors.reset}`);
-        console.log(`${colors.white}6. Exit${colors.reset}`);
-        console.log(`${colors.cyan}------------------------------${colors.reset}\n`);
+        console.log(`${colors.reset}\n`);
 
-        const choice = await this.getUserInput('Select an option (1-6): ');
+        const choice = await this.getUserInput('Select an option (1-5): ');
         return choice;
     }
 
     async promptTransactionDetails() {
         const transactions = await this.getUserInput('Enter number of transactions per wallet (e.g., 1-10): ');
-        const minDelay = await this.getUserInput('Enter minimum delay between transactions in seconds (e.g., 10): ');
-        const maxDelay = await this.getUserInput('Enter maximum delay between transactions in seconds (e.g., 30): ');
+        const delay = await this.getUserInput('Enter delay between transactions in seconds (e.g., 20): ');
 
         const txCount = parseInt(transactions);
-        const parsedMinDelay = parseFloat(minDelay);
-        const parsedMaxDelay = parseFloat(maxDelay);
+        const parsedDelay = parseFloat(delay);
 
-        if (isNaN(txCount) || txCount <= 0 || isNaN(parsedMinDelay) || parsedMinDelay < 0 || isNaN(parsedMaxDelay) || parsedMaxDelay < parsedMinDelay) {
+        if (isNaN(txCount) || txCount <= 0 || isNaN(parsedDelay) || parsedDelay < 0) {
             logger.error('Invalid input for transaction count or delay. Please enter valid numbers.');
             return null;
         }
-        return { txCount, minDelay: parsedMinDelay, maxDelay: parsedMaxDelay };
+        return { txCount, delay: parsedDelay };
     }
+
+    async executeTransactionWithRetry(wallet, transactionFunction, transactionName, txCountIndex, totalTxCount, tokenSymbol, initialDelay, isApprove = false) {
+        let txFailed = true;
+        let retries = 0;
+        const maxRetries = 5; 
+
+        while (txFailed && retries < maxRetries) {
+            try {
+                logger.loading(`${transactionName} ${tokenSymbol ? tokenSymbol + ' - ' : ''}Transaction ${txCountIndex + 1}/${totalTxCount} for wallet ${wallet.address} (Attempt ${retries + 1})`);
+
+                
+                const currentNonce = await wallet.provider.getTransactionCount(wallet.address, 'latest');
+
+                const tx = await transactionFunction(currentNonce);
+
+                logger.info(`TX Hash: ${tx.hash}`);
+                const receipt = await tx.wait();
+                logger.success(`${transactionName} transaction ${txCountIndex + 1} confirmed`);
+                logger.step(`Explorer: ${NETWORK_CONFIG.explorer}tx/${receipt.hash}`);
+
+                txFailed = false; 
+            } catch (error) {
+                logger.error(`${transactionName} transaction ${txCountIndex + 1} failed for wallet ${wallet.address} (Attempt ${retries + 1}): ${error.message}`);
+
+                
+                if (error.message.includes("nonce has already been used") || error.message.includes("TX_REPLAY_ATTACK") || error.message.includes("replacement transaction underpriced")) {
+                    logger.warn("Nonce conflict or underpriced replacement detected. Retrying with a fresh nonce...");
+                    
+                    
+                } else if (error.message.includes("insufficient funds")) {
+                    logger.error("Insufficient funds for transaction. Cannot retry.");
+                    txFailed = false; 
+                } else {
+                    
+                    
+                    logger.error("Non-nonce related error. Stopping retries for this transaction.");
+                    txFailed = false; 
+                }
+                retries++;
+                if (txFailed && retries < maxRetries) {
+                    await this.getRandomDelay(initialDelay + (retries * 5)); 
+                } else if (txFailed) { 
+                    logger.error(`Transaction ${txCountIndex + 1} permanently failed for wallet ${wallet.address} after ${maxRetries} attempts.`);
+                }
+            }
+        }
+        return !txFailed; 
+    }
+
 
     async supplyPHRS() {
         logger.step('Starting PHRS Supply Process');
@@ -163,7 +209,7 @@ class PharosBot {
         const amount = await this.getUserInput('Enter amount of PHRS to supply: ');
         const details = await this.promptTransactionDetails();
         if (!details) return;
-        const { txCount, minDelay, maxDelay } = details;
+        const { txCount, delay } = details;
 
         const amountWei = ethers.parseEther(amount);
 
@@ -187,25 +233,17 @@ class PharosBot {
                 );
 
                 for (let j = 0; j < txCount; j++) {
-                    try {
-                        logger.loading(`Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
-
-                        const tx = await lendingContract.depositETH(
-                            '0x0000000000000000000000000000000000000000', // ETH_ADDRESS for native currency
+                    const transactionFunction = async (nonce) => {
+                        return await lendingContract.depositETH(
+                            '0x0000000000000000000000000000000000000000', 
                             wallet.address,
                             0, // referralCode
-                            { value: amountWei }
+                            { value: amountWei, nonce: nonce }
                         );
-
-                        logger.success(`TX Hash: ${tx.hash}`);
-                        await tx.wait();
-                        logger.success(`Transaction ${j + 1} confirmed`);
-
-                        if (j < txCount - 1) {
-                            await this.getRandomDelay(minDelay, maxDelay);
-                        }
-                    } catch (error) {
-                        logger.error(`Transaction ${j + 1} failed for wallet ${i + 1}: ${error.message}`);
+                    };
+                    const success = await this.executeTransactionWithRetry(wallet, transactionFunction, 'PHRS Supply', j, txCount, null, delay);
+                    if (j < txCount - 1 && success) {
+                        await this.getRandomDelay(delay);
                     }
                 }
             } catch (error) {
@@ -213,7 +251,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(minDelay, maxDelay); // Delay between wallets
+                await this.getRandomDelay(delay); 
             }
         }
         logger.success('PHRS Supply Process Completed.');
@@ -242,7 +280,7 @@ class PharosBot {
         const amount = await this.getUserInput(`Enter amount of ${selectedToken} to mint: `);
         const details = await this.promptTransactionDetails();
         if (!details) return;
-        const { txCount, minDelay, maxDelay } = details;
+        const { txCount, delay } = details;
 
         const decimals = (selectedToken === 'USDT' || selectedToken === 'USDC' || selectedToken === 'BTC') ? 6 : 18;
         const amountWei = ethers.parseUnits(amount, decimals);
@@ -259,24 +297,17 @@ class PharosBot {
                 );
 
                 for (let j = 0; j < txCount; j++) {
-                    try {
-                        logger.loading(`Minting ${selectedToken} - Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
-
-                        const tx = await faucetContract.mint(
+                    const transactionFunction = async (nonce) => {
+                        return await faucetContract.mint(
                             tokenAddress,
                             wallet.address,
-                            amountWei
+                            amountWei,
+                            { nonce: nonce }
                         );
-
-                        logger.success(`TX Hash: ${tx.hash}`);
-                        await tx.wait();
-                        logger.success(`Mint transaction ${j + 1} confirmed`);
-
-                        if (j < txCount - 1) {
-                            await this.getRandomDelay(minDelay, maxDelay);
-                        }
-                    } catch (error) {
-                        logger.error(`Mint transaction ${j + 1} failed for wallet ${i + 1}: ${error.message}`);
+                    };
+                    const success = await this.executeTransactionWithRetry(wallet, transactionFunction, 'Minting', j, txCount, selectedToken, delay);
+                    if (j < txCount - 1 && success) {
+                        await this.getRandomDelay(delay);
                     }
                 }
             } catch (error) {
@@ -284,7 +315,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(minDelay, maxDelay); // Delay between wallets
+                await this.getRandomDelay(delay); 
             }
         }
         logger.success('Faucet Token Minting Process Completed.');
@@ -313,7 +344,7 @@ class PharosBot {
         const amount = await this.getUserInput(`Enter amount of ${selectedToken} to supply: `);
         const details = await this.promptTransactionDetails();
         if (!details) return;
-        const { txCount, minDelay, maxDelay } = details;
+        const { txCount, delay } = details;
 
         const decimals = (selectedToken === 'USDT' || selectedToken === 'USDC' || selectedToken === 'BTC') ? 6 : 18;
         const amountWei = ethers.parseUnits(amount, decimals);
@@ -326,47 +357,45 @@ class PharosBot {
                 const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
 
                 for (let j = 0; j < txCount; j++) {
-                    try {
-                        logger.loading(`Approving ${selectedToken} - Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
-
-                        const approveTx = await tokenContract.approve(
+                    
+                    const approveFunction = async (nonce) => {
+                        return await tokenContract.approve(
                             CONTRACTS.SUPPLY_CONTRACT,
-                            ethers.MaxUint256 // Approve for maximum amount
+                            ethers.MaxUint256, 
+                            { nonce: nonce }
                         );
+                    };
+                    const approveSuccess = await this.executeTransactionWithRetry(wallet, approveFunction, `Approving ${selectedToken}`, j, txCount, null, delay);
 
-                        logger.info(`Approve TX Hash: ${approveTx.hash}`);
-                        await approveTx.wait();
-                        logger.success(`Approve transaction ${j + 1} confirmed`);
+                    if (!approveSuccess) {
+                        logger.error(`Skipping supply for wallet ${i + 1} due to failed approval.`);
+                        continue; 
+                    }
 
-                        logger.loading(`Supplying ${selectedToken} - Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
+                    await this.getRandomDelay(2); 
 
-                        // Encode the supply function data
+                    
+                    const supplyFunction = async (nonce) => {
                         const iface = new ethers.Interface([
                             "function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)"
                         ]);
-
                         const supplyData = iface.encodeFunctionData("supply", [
                             tokenAddress,
                             amountWei,
                             wallet.address,
-                            0 // referralCode
+                            0 
                         ]);
-
-                        const supplyTx = await wallet.sendTransaction({
+                        return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: supplyData,
-                            gasLimit: 500000 // Adjust gas limit if needed
+                            gasLimit: 500000, 
+                            nonce: nonce
                         });
+                    };
+                    const supplySuccess = await this.executeTransactionWithRetry(wallet, supplyFunction, `Supplying ${selectedToken}`, j, txCount, null, delay);
 
-                        logger.success(`Supply TX Hash: ${supplyTx.hash}`);
-                        await supplyTx.wait();
-                        logger.success(`Supply transaction ${j + 1} confirmed`);
-
-                        if (j < txCount - 1) {
-                            await this.getRandomDelay(minDelay, maxDelay);
-                        }
-                    } catch (error) {
-                        logger.error(`Supply transaction ${j + 1} failed for wallet ${i + 1}: ${error.message}`);
+                    if (j < txCount - 1 && supplySuccess) {
+                        await this.getRandomDelay(delay);
                     }
                 }
             } catch (error) {
@@ -374,7 +403,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(minDelay, maxDelay); // Delay between wallets
+                await this.getRandomDelay(delay); 
             }
         }
         logger.success('ERC20 Token Supply Process Completed.');
@@ -403,7 +432,7 @@ class PharosBot {
         const amount = await this.getUserInput(`Enter amount of ${selectedToken} to borrow: `);
         const details = await this.promptTransactionDetails();
         if (!details) return;
-        const { txCount, minDelay, maxDelay } = details;
+        const { txCount, delay } = details;
 
         const decimals = (selectedToken === 'USDT' || selectedToken === 'USDC' || selectedToken === 'BTC') ? 6 : 18;
         const amountWei = ethers.parseUnits(amount, decimals);
@@ -414,36 +443,27 @@ class PharosBot {
 
             try {
                 for (let j = 0; j < txCount; j++) {
-                    try {
-                        logger.loading(`Borrowing ${selectedToken} - Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
-
+                    const transactionFunction = async (nonce) => {
                         const iface = new ethers.Interface([
                             "function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)"
                         ]);
-
                         const borrowData = iface.encodeFunctionData("borrow", [
                             tokenAddress,
                             amountWei,
-                            2, // interestRateMode: 1 for stable, 2 for variable
-                            0, // referralCode
+                            2, 
+                            0, 
                             wallet.address
                         ]);
-
-                        const tx = await wallet.sendTransaction({
+                        return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: borrowData,
-                            gasLimit: 500000 // Adjust gas limit if needed
+                            gasLimit: 500000, 
+                            nonce: nonce
                         });
-
-                        logger.success(`Borrow TX Hash: ${tx.hash}`);
-                        await tx.wait();
-                        logger.success(`Borrow transaction ${j + 1} confirmed`);
-
-                        if (j < txCount - 1) {
-                            await this.getRandomDelay(minDelay, maxDelay);
-                        }
-                    } catch (error) {
-                        logger.error(`Borrow transaction ${j + 1} failed for wallet ${i + 1}: ${error.message}`);
+                    };
+                    const success = await this.executeTransactionWithRetry(wallet, transactionFunction, 'Borrowing', j, txCount, selectedToken, delay);
+                    if (j < txCount - 1 && success) {
+                        await this.getRandomDelay(delay);
                     }
                 }
             } catch (error) {
@@ -451,7 +471,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(minDelay, maxDelay); // Delay between wallets
+                await this.getRandomDelay(delay); 
             }
         }
         logger.success('Token Borrow Process Completed.');
@@ -480,7 +500,7 @@ class PharosBot {
         const amount = await this.getUserInput(`Enter amount of ${selectedToken} to withdraw: `);
         const details = await this.promptTransactionDetails();
         if (!details) return;
-        const { txCount, minDelay, maxDelay } = details;
+        const { txCount, delay } = details;
 
         const decimals = (selectedToken === 'USDT' || selectedToken === 'USDC' || selectedToken === 'BTC') ? 6 : 18;
         const amountWei = ethers.parseUnits(amount, decimals);
@@ -491,34 +511,25 @@ class PharosBot {
 
             try {
                 for (let j = 0; j < txCount; j++) {
-                    try {
-                        logger.loading(`Withdrawing ${selectedToken} - Transaction ${j + 1}/${txCount} for wallet ${i + 1}`);
-
+                    const transactionFunction = async (nonce) => {
                         const iface = new ethers.Interface([
                             "function withdraw(address asset, uint256 amount, address to)"
                         ]);
-
                         const withdrawData = iface.encodeFunctionData("withdraw", [
                             tokenAddress,
                             amountWei,
                             wallet.address
                         ]);
-
-                        const tx = await wallet.sendTransaction({
+                        return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: withdrawData,
-                            gasLimit: 500000 // Adjust gas limit if needed
+                            gasLimit: 500000, 
+                            nonce: nonce
                         });
-
-                        logger.success(`Withdraw TX Hash: ${tx.hash}`);
-                        await tx.wait();
-                        logger.success(`Withdraw transaction ${j + 1} confirmed`);
-
-                        if (j < txCount - 1) {
-                            await this.getRandomDelay(minDelay, maxDelay);
-                        }
-                    } catch (error) {
-                        logger.error(`Withdraw transaction ${j + 1} failed for wallet ${i + 1}: ${error.message}`);
+                    };
+                    const success = await this.executeTransactionWithRetry(wallet, transactionFunction, 'Withdrawing', j, txCount, selectedToken, delay);
+                    if (j < txCount - 1 && success) {
+                        await this.getRandomDelay(delay);
                     }
                 }
             } catch (error) {
@@ -526,7 +537,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(minDelay, maxDelay); // Delay between wallets
+                await this.getRandomDelay(delay); 
             }
         }
         logger.success('Token Withdraw Process Completed.');
@@ -555,16 +566,12 @@ class PharosBot {
                     case '5':
                         await this.withdrawTokens();
                         break;
-                    case '6':
-                        logger.success('Exiting bot...');
-                        this.rl.close();
-                        process.exit(0);
-                        break;
+                    
                     default:
                         logger.error('Invalid choice. Please select 1-6.');
                 }
 
-                await this.getUserInput('\nPress Enter to continue...');
+                await this.getUserInput('\nEnter to continue...');
             }
         } catch (error) {
             logger.error(`Fatal error: ${error.message}`);
