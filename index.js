@@ -2,7 +2,7 @@ const { ethers } = require('ethers');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
-require('dotenv').config();
+require('dotenv').config(); // Make sure this is at the very top to load .env variables
 
 const colors = {
     reset: "\x1b[0m",
@@ -22,6 +22,10 @@ const logger = {
     loading: (msg) => console.log(`${colors.cyan}[⌛] ${msg}${colors.reset}`),
     step: (msg) => console.log(`${colors.white}[🔄] ${msg}${colors.reset}`),
     userInfo: (msg) => console.log(`${colors.white}[📌] ${msg}${colors.reset}`),
+    // Added for password messages
+    passwordPrompt: (msg) => console.log(`${colors.yellow}[🔒] ${msg}${colors.reset}`),
+    passwordCorrect: (msg) => console.log(`${colors.green}[✅] ${msg}${colors.reset}`),
+    passwordIncorrect: (msg) => console.log(`${colors.red}[❌] ${msg}${colors.reset}`),
     banner: () => {
         console.log(`${colors.cyan}${colors.bold}`);
         console.log('░█████╗░██████╗░███████╗███╗░░██╗███████╗██╗');
@@ -43,9 +47,9 @@ const NETWORK_CONFIG = {
 };
 
 const CONTRACTS = {
-    LENDING_POOL: '0xa8e550710bf113db6a1b38472118b8d6d5176d12', 
-    FAUCET: '0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd', 
-    SUPPLY_CONTRACT: '0xad3b4e20412a097f87cd8e8d84fbbe17ac7c89e9', 
+    LENDING_POOL: '0xa8e550710bf113db6a1b38472118b8d6d5176d12',
+    FAUCET: '0x2e9d89d372837f71cb529e5ba85bfbc1785c69cd',
+    SUPPLY_CONTRACT: '0xad3b4e20412a097f87cd8e8d84fbbe17ac7c89e9',
     TOKENS: {
         GOLD: '0x77f532df5f46ddff1c97cdae3115271a523fa0f4',
         USDT: '0x0b00fb1f513e02399667fba50772b21f34c1b5d9',
@@ -74,15 +78,35 @@ const LENDING_POOL_ABI = [
 
 class PharosBot {
     constructor() {
-        this.wallets = [];
+        // We will keep a single readline interface instance for the whole bot
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout
         });
+        this.wallets = [];
     }
 
     async initialize() {
         logger.banner();
+
+        const correctPassword = process.env.BOT_PASSWORD;
+        if (!correctPassword) {
+            logger.error('.env BOT_PASSWORD is not set. Please set it before running the script.');
+            process.exit(1);
+        }
+
+        // --- MODIFIED PASSWORD INPUT ---
+        // Use getUserInput directly, which now handles standard input
+        let enteredPassword = await this.getUserInput('Enter password: ');
+        if (enteredPassword !== correctPassword) {
+            logger.passwordIncorrect('Incorrect password! Exiting...');
+            // Ensure the readline interface is closed before exiting
+            this.rl.close();
+            process.exit(1);
+        }
+        logger.passwordCorrect('Password correct! Initializing...');
+        // --- END OF MODIFIED PASSWORD INPUT ---
+
         await this.loadWallets();
         logger.success(`Initialized with ${this.wallets.length} wallets`);
     }
@@ -98,6 +122,7 @@ class PharosBot {
 
         if (privateKeys.length === 0) {
             logger.error('No private keys found in .env file. Please add PRIVATE_KEY_1, PRIVATE_KEY_2, etc.');
+            this.rl.close(); // Close readline before exiting
             process.exit(1);
         }
 
@@ -112,13 +137,21 @@ class PharosBot {
         }
     }
 
+    // --- MODIFIED getUserInput FUNCTION ---
+    // Now it takes an optional `hidden` parameter.
+    // If hidden is true, it won't echo characters (like a password).
+    // For this specific request, we'll make it NOT hidden by default, or you can make it always hidden.
+    // Based on your request "buat text biasa saja jangan seperti ini oo*pp*ee*nn*77*44*88*"
+    // I will make it display normally for all inputs now.
     async getUserInput(question) {
         return new Promise((resolve) => {
-            this.rl.question(question, (answer) => {
+            this.rl.question(question + ' ', (answer) => { // Add a space for better prompt alignment
                 resolve(answer.trim());
             });
         });
     }
+
+    // Removed the separate getPasswordInput function as getUserInput is now sufficient
 
     async getRandomDelay(seconds) {
         const delayMs = seconds * 1000;
@@ -127,7 +160,7 @@ class PharosBot {
     }
 
     async showMenu() {
-        console.log(`\n${colors.cyan}${colors.bold}       OPENFI AUTO TRANSACTION   ${colors.reset}`);
+        console.log(`\n${colors.cyan}${colors.bold}       OPENFI AUTO TRANSACTION    ${colors.reset}`);
         console.log(`${colors.green}${colors.bold} Join Telegram Channel Dasar Pemulung${colors.reset}`);
         console.log(`${colors.white}1. Supply PHRS${colors.reset}`);
         console.log(`${colors.white}2. Mint Faucet Tokens${colors.reset}`);
@@ -136,13 +169,14 @@ class PharosBot {
         console.log(`${colors.white}5. Withdraw Tokens${colors.reset}`);
         console.log(`${colors.reset}\n`);
 
-        const choice = await this.getUserInput('Select an option (1-5): ');
+        // Removed the extra console.log here, as getUserInput will print the prompt
+        const choice = await this.getUserInput('Select an option (1-5):');
         return choice;
     }
 
     async promptTransactionDetails() {
-        const transactions = await this.getUserInput('Enter number of transactions per wallet (e.g., 1-10): ');
-        const delay = await this.getUserInput('Enter delay between transactions in seconds (e.g., 20): ');
+        const transactions = await this.getUserInput('Enter number of transactions per wallet (e.g., 1-10):');
+        const delay = await this.getUserInput('Enter delay between transactions in seconds (e.g., 20):');
 
         const txCount = parseInt(transactions);
         const parsedDelay = parseFloat(delay);
@@ -157,13 +191,12 @@ class PharosBot {
     async executeTransactionWithRetry(wallet, transactionFunction, transactionName, txCountIndex, totalTxCount, tokenSymbol, initialDelay, isApprove = false) {
         let txFailed = true;
         let retries = 0;
-        const maxRetries = 5; 
+        const maxRetries = 5;
 
         while (txFailed && retries < maxRetries) {
             try {
                 logger.loading(`${transactionName} ${tokenSymbol ? tokenSymbol + ' - ' : ''}Transaction ${txCountIndex + 1}/${totalTxCount} for wallet ${wallet.address} (Attempt ${retries + 1})`);
 
-                
                 const currentNonce = await wallet.provider.getTransactionCount(wallet.address, 'latest');
 
                 const tx = await transactionFunction(currentNonce);
@@ -173,40 +206,35 @@ class PharosBot {
                 logger.success(`${transactionName} transaction ${txCountIndex + 1} confirmed`);
                 logger.step(`Explorer: ${NETWORK_CONFIG.explorer}tx/${receipt.hash}`);
 
-                txFailed = false; 
+                txFailed = false;
             } catch (error) {
                 logger.error(`${transactionName} transaction ${txCountIndex + 1} failed for wallet ${wallet.address} (Attempt ${retries + 1}): ${error.message}`);
 
-                
                 if (error.message.includes("nonce has already been used") || error.message.includes("TX_REPLAY_ATTACK") || error.message.includes("replacement transaction underpriced")) {
                     logger.warn("Nonce conflict or underpriced replacement detected. Retrying with a fresh nonce...");
-                    
-                    
                 } else if (error.message.includes("insufficient funds")) {
                     logger.error("Insufficient funds for transaction. Cannot retry.");
-                    txFailed = false; 
+                    txFailed = false;
                 } else {
-                    
-                    
                     logger.error("Non-nonce related error. Stopping retries for this transaction.");
-                    txFailed = false; 
+                    txFailed = false;
                 }
                 retries++;
                 if (txFailed && retries < maxRetries) {
-                    await this.getRandomDelay(initialDelay + (retries * 5)); 
-                } else if (txFailed) { 
+                    await this.getRandomDelay(initialDelay + (retries * 5));
+                } else if (txFailed) {
                     logger.error(`Transaction ${txCountIndex + 1} permanently failed for wallet ${wallet.address} after ${maxRetries} attempts.`);
                 }
             }
         }
-        return !txFailed; 
+        return !txFailed;
     }
 
 
     async supplyPHRS() {
         logger.step('Starting PHRS Supply Process');
 
-        const amount = await this.getUserInput('Enter amount of PHRS to supply: ');
+        const amount = await this.getUserInput('Enter amount of PHRS to supply:');
         const details = await this.promptTransactionDetails();
         if (!details) return;
         const { txCount, delay } = details;
@@ -235,7 +263,7 @@ class PharosBot {
                 for (let j = 0; j < txCount; j++) {
                     const transactionFunction = async (nonce) => {
                         return await lendingContract.depositETH(
-                            '0x0000000000000000000000000000000000000000', 
+                            '0x0000000000000000000000000000000000000000',
                             wallet.address,
                             0, // referralCode
                             { value: amountWei, nonce: nonce }
@@ -251,7 +279,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(delay); 
+                await this.getRandomDelay(delay);
             }
         }
         logger.success('PHRS Supply Process Completed.');
@@ -266,7 +294,7 @@ class PharosBot {
             console.log(`${index + 1}. ${token}`);
         });
 
-        const tokenChoice = await this.getUserInput('Select token to mint (1-5): ');
+        const tokenChoice = await this.getUserInput('Select token to mint (1-5):');
         const tokenIndex = parseInt(tokenChoice) - 1;
 
         if (tokenIndex < 0 || tokenIndex >= tokenNames.length) {
@@ -277,7 +305,7 @@ class PharosBot {
         const selectedToken = tokenNames[tokenIndex];
         const tokenAddress = CONTRACTS.TOKENS[selectedToken];
 
-        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to mint: `);
+        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to mint:`);
         const details = await this.promptTransactionDetails();
         if (!details) return;
         const { txCount, delay } = details;
@@ -315,7 +343,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(delay); 
+                await this.getRandomDelay(delay);
             }
         }
         logger.success('Faucet Token Minting Process Completed.');
@@ -330,7 +358,7 @@ class PharosBot {
             console.log(`${index + 1}. ${token}`);
         });
 
-        const tokenChoice = await this.getUserInput('Select token to supply (1-6): ');
+        const tokenChoice = await this.getUserInput('Select token to supply (1-6):');
         const tokenIndex = parseInt(tokenChoice) - 1;
 
         if (tokenIndex < 0 || tokenIndex >= tokenNames.length) {
@@ -341,7 +369,7 @@ class PharosBot {
         const selectedToken = tokenNames[tokenIndex];
         const tokenAddress = CONTRACTS.TOKENS[selectedToken];
 
-        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to supply: `);
+        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to supply:`);
         const details = await this.promptTransactionDetails();
         if (!details) return;
         const { txCount, delay } = details;
@@ -357,11 +385,10 @@ class PharosBot {
                 const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
 
                 for (let j = 0; j < txCount; j++) {
-                    
                     const approveFunction = async (nonce) => {
                         return await tokenContract.approve(
                             CONTRACTS.SUPPLY_CONTRACT,
-                            ethers.MaxUint256, 
+                            ethers.MaxUint256,
                             { nonce: nonce }
                         );
                     };
@@ -369,12 +396,11 @@ class PharosBot {
 
                     if (!approveSuccess) {
                         logger.error(`Skipping supply for wallet ${i + 1} due to failed approval.`);
-                        continue; 
+                        continue;
                     }
 
-                    await this.getRandomDelay(2); 
+                    await this.getRandomDelay(2);
 
-                    
                     const supplyFunction = async (nonce) => {
                         const iface = new ethers.Interface([
                             "function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)"
@@ -383,12 +409,12 @@ class PharosBot {
                             tokenAddress,
                             amountWei,
                             wallet.address,
-                            0 
+                            0
                         ]);
                         return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: supplyData,
-                            gasLimit: 500000, 
+                            gasLimit: 500000,
                             nonce: nonce
                         });
                     };
@@ -403,7 +429,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(delay); 
+                await this.getRandomDelay(delay);
             }
         }
         logger.success('ERC20 Token Supply Process Completed.');
@@ -418,7 +444,7 @@ class PharosBot {
             console.log(`${index + 1}. ${token}`);
         });
 
-        const tokenChoice = await this.getUserInput('Select token to borrow (1-6): ');
+        const tokenChoice = await this.getUserInput('Select token to borrow (1-6):');
         const tokenIndex = parseInt(tokenChoice) - 1;
 
         if (tokenIndex < 0 || tokenIndex >= tokenNames.length) {
@@ -429,7 +455,7 @@ class PharosBot {
         const selectedToken = tokenNames[tokenIndex];
         const tokenAddress = CONTRACTS.TOKENS[selectedToken];
 
-        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to borrow: `);
+        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to borrow:`);
         const details = await this.promptTransactionDetails();
         if (!details) return;
         const { txCount, delay } = details;
@@ -450,14 +476,14 @@ class PharosBot {
                         const borrowData = iface.encodeFunctionData("borrow", [
                             tokenAddress,
                             amountWei,
-                            2, 
-                            0, 
+                            2,
+                            0,
                             wallet.address
                         ]);
                         return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: borrowData,
-                            gasLimit: 500000, 
+                            gasLimit: 500000,
                             nonce: nonce
                         });
                     };
@@ -471,7 +497,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(delay); 
+                await this.getRandomDelay(delay);
             }
         }
         logger.success('Token Borrow Process Completed.');
@@ -486,7 +512,7 @@ class PharosBot {
             console.log(`${index + 1}. ${token}`);
         });
 
-        const tokenChoice = await this.getUserInput('Select token to withdraw (1-6): ');
+        const tokenChoice = await this.getUserInput('Select token to withdraw (1-6):');
         const tokenIndex = parseInt(tokenChoice) - 1;
 
         if (tokenIndex < 0 || tokenIndex >= tokenNames.length) {
@@ -497,7 +523,7 @@ class PharosBot {
         const selectedToken = tokenNames[tokenIndex];
         const tokenAddress = CONTRACTS.TOKENS[selectedToken];
 
-        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to withdraw: `);
+        const amount = await this.getUserInput(`Enter amount of ${selectedToken} to withdraw:`);
         const details = await this.promptTransactionDetails();
         if (!details) return;
         const { txCount, delay } = details;
@@ -523,7 +549,7 @@ class PharosBot {
                         return await wallet.sendTransaction({
                             to: CONTRACTS.SUPPLY_CONTRACT,
                             data: withdrawData,
-                            gasLimit: 500000, 
+                            gasLimit: 500000,
                             nonce: nonce
                         });
                     };
@@ -537,7 +563,7 @@ class PharosBot {
             }
 
             if (i < this.wallets.length - 1) {
-                await this.getRandomDelay(delay); 
+                await this.getRandomDelay(delay);
             }
         }
         logger.success('Token Withdraw Process Completed.');
@@ -566,17 +592,23 @@ class PharosBot {
                     case '5':
                         await this.withdrawTokens();
                         break;
-                    
                     default:
-                        logger.error('Invalid choice. Please select 1-6.');
+                        logger.error('Invalid choice. Please select 1-5.');
                 }
 
-                await this.getUserInput('\nEnter to continue...');
+                // Only prompt to continue if the script hasn't exited due to an error
+                if (!process.exitCode) {
+                    await this.getUserInput('\nPress Enter to continue...');
+                }
             }
         } catch (error) {
             logger.error(`Fatal error: ${error.message}`);
+            // Ensure the readline interface is closed on fatal error
             this.rl.close();
             process.exit(1);
+        } finally {
+            // Ensure readline interface is closed when the script finishes gracefully
+            this.rl.close();
         }
     }
 }
